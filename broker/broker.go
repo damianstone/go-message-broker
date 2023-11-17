@@ -22,7 +22,7 @@ import (
 	3- a subscriber server is a client and listener server at the same time that stores the logic of what to do
 		with the data that is being passed to it from the broker
 	4- When a client publish server publish something to a topic, the broker will pass it to the subscriber server
-	5- The subscriber server will do whatever it wants with the data and send the result back to the broker
+	5- The subscriber server will do whatever it wants with the data and send the result back to the broker.
 */
 
 var topics = make(map[string]chan stubs.Pair)
