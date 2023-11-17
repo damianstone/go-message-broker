@@ -21,20 +21,38 @@ import (
 		so then the broker can call the factory functions from the broker server
 */
 
+var (
+	mulch = make(chan int, 2)
+)
+
 type Factory struct{}
 
-// This is just a helper function that attempts to determine this
-// process' IP address.
-func getOutboundIP() string {
-	conn, _ := net.Dial("udp", "8.8.8.8:80")
-	defer conn.Close()
-	localAddr := conn.LocalAddr().(*net.UDPAddr).IP.String()
-	return localAddr
+func makedivision(ch chan int, client *rpc.Client) {
+	for {
+		x := <-ch
+		y := <-ch
+		newpair := stubs.Pair{X: x, Y: y}
+		towork := stubs.PublishRequest{Topic: "divide", Pair: newpair}
+		status := new(stubs.StatusReport)
+		err := client.Call(stubs.Publish, towork, status)
+		if err != nil {
+			fmt.Println("RPC client returned error:")
+			fmt.Println(err)
+			fmt.Println("Dropping division.")
+		}
+	}
 }
 
 func (f *Factory) Multiply(req stubs.Pair, res *stubs.JobReport) (err error) {
 	res.Result = req.X * req.Y
 	fmt.Println(req.X, "*", req.Y, "=", res.Result)
+	mulch <- res.Result
+	return
+}
+
+func (f *Factory) Divide(req stubs.Pair, res *stubs.JobReport) (err error) {
+	res.Result = req.X / req.Y
+	fmt.Println(req.X, "/", req.Y, "=", res.Result)
 	return
 }
 
@@ -54,6 +72,8 @@ func main() {
 
 	status := new(stubs.StatusReport)
 
+	client.Call(stubs.CreateChannel, stubs.ChannelRequest{Topic: "divide", Buffer: 10}, status)
+
 	// register factory as an RPC server
 	rpc.Register(&Factory{})
 	listener, lisError := net.Listen("tcp", *pAddr)
@@ -63,16 +83,24 @@ func main() {
 		fmt.Println("Listening on " + *pAddr)
 	}
 
-	fmt.Println(*pAddr)
-	// send subscription request to broker
-	request := stubs.Subscription{
+	// subscribe to multiply
+	request1 := stubs.Subscription{
 		Topic:          "multiply",
 		FactoryAddress: *pAddr,
 		Callback:       "Factory.Multiply",
 	}
-	client.Call(stubs.Subscribe, request, status)
+	client.Call(stubs.Subscribe, request1, status)
 	fmt.Println("Response: " + status.Message)
 
+	// subscribe to divide
+	request2 := stubs.Subscription{
+		Topic:          "divide",
+		FactoryAddress: *pAddr,
+		Callback:       "Factory.Divide",
+	}
+
+	client.Call(stubs.Subscribe, request2, status)
+	go makedivision(mulch, client)
 	defer listener.Close()
 	rpc.Accept(listener)
 	flag.Parse()
